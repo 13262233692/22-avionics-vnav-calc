@@ -86,10 +86,11 @@ void VnavStateMachine::computeVerticalProfile(const LnavStateMachine& lnav) {
     double descent_rate = config_.standard_descent_rate_fpm;
     double avg_gs_kt = 450.0;
 
-    double climb_alt_needed = cruise_alt - waypoints[0].altitude_constraint.altitude1_ft;
-    if (waypoints[0].altitude_constraint.type == AltitudeConstraintType::ALT_NONE) {
-        climb_alt_needed = cruise_alt - 0.0;
+    double initial_alt = 0.0;
+    if (waypoints[0].altitude_constraint.type != AltitudeConstraintType::ALT_NONE) {
+        initial_alt = waypoints[0].altitude_constraint.altitude1_ft;
     }
+    double climb_alt_needed = cruise_alt - initial_alt;
     double climb_time_min = climb_alt_needed / climb_rate;
     double climb_dist_nm = avg_gs_kt * climb_time_min / 60.0;
 
@@ -106,6 +107,20 @@ void VnavStateMachine::computeVerticalProfile(const LnavStateMachine& lnav) {
 
     double tod_nm = total_dist - descent_dist_nm;
     double toc_nm = climb_dist_nm;
+
+    std::vector<VnavWaypointProfile> backward_descent;
+    bool backward_success = computeDescentProfileBackward(lnav, backward_descent, cruise_alt, final_alt);
+
+    if (backward_success && !backward_descent.empty()) {
+        double actual_tod_nm = backward_descent.front().distance_from_start_nm;
+        for (size_t i = 0; i < backward_descent.size(); i++) {
+            if (backward_descent[i].altitude_ft < cruise_alt - 500.0) {
+                actual_tod_nm = backward_descent[i].distance_from_start_nm;
+                break;
+            }
+        }
+        tod_nm = std::min(tod_nm, actual_tod_nm);
+    }
 
     state_.distance_to_top_of_climb_nm = toc_nm;
     state_.distance_to_top_of_descent_nm = tod_nm;
@@ -126,9 +141,14 @@ void VnavStateMachine::computeVerticalProfile(const LnavStateMachine& lnav) {
         if (cumulative_dist <= toc_nm) {
             p.phase = VnavPhase::CLIMB;
             double climb_fraction = cumulative_dist / std::max(toc_nm, 0.1);
-            p.altitude_ft = waypoints[0].altitude_constraint.altitude1_ft + climb_alt_needed * climb_fraction;
+            p.altitude_ft = initial_alt + climb_alt_needed * climb_fraction;
             p.vertical_speed_fpm = climb_rate;
             p.cas_kt = config_.climb_cas_kt;
+        } else if (cumulative_dist >= tod_nm && backward_success && i < backward_descent.size()) {
+            p.phase = VnavPhase::DESCENT;
+            p.altitude_ft = backward_descent[i].altitude_ft;
+            p.vertical_speed_fpm = backward_descent[i].vertical_speed_fpm;
+            p.cas_kt = config_.descent_cas_kt;
         } else if (cumulative_dist >= tod_nm) {
             p.phase = VnavPhase::DESCENT;
             double descent_fraction = (cumulative_dist - tod_nm) / std::max(descent_dist_nm, 0.1);
@@ -217,6 +237,191 @@ double VnavStateMachine::computeFlightPathAngle(double vs_fpm, double gs_kt) con
     double vs_nm_per_min = vs_fpm / 6076.12;
     double gs_nm_per_min = gs_kt / 60.0;
     return std::atan2(vs_nm_per_min, gs_nm_per_min) * 180.0 / M_PI;
+}
+
+double VnavStateMachine::getMaxDescentRateFpm(double altitude_ft, double gs_kt) const {
+    double max_vs_by_angle = 0.0;
+    if (gs_kt > 0.0) {
+        double max_angle_rad = config_.max_flight_path_angle_deg * M_PI / 180.0;
+        double vs_nm_per_min = std::tan(max_angle_rad) * (gs_kt / 60.0);
+        max_vs_by_angle = vs_nm_per_min * 6076.12;
+    }
+    return std::min(config_.max_descent_rate_fpm, max_vs_by_angle);
+}
+
+bool VnavStateMachine::checkDescentFeasibility(double alt_diff_ft, double distance_nm,
+                                                double gs_kt, double& required_vs_fpm) const {
+    if (distance_nm <= 0.001 || gs_kt <= 0.1) {
+        required_vs_fpm = 0.0;
+        return false;
+    }
+    double time_min = distance_nm / gs_kt * 60.0;
+    required_vs_fpm = alt_diff_ft / time_min;
+    double max_descent = getMaxDescentRateFpm(0.0, gs_kt);
+    if (std::abs(required_vs_fpm) > max_descent + config_.descent_gradient_tolerance * 100.0) {
+        return false;
+    }
+    return true;
+}
+
+bool VnavStateMachine::computeDescentProfileBackward(const LnavStateMachine& lnav,
+                                                      std::vector<VnavWaypointProfile>& descent_profile,
+                                                      double cruise_alt_ft,
+                                                      double final_alt_ft) {
+    const auto& waypoints = lnav.getWaypoints();
+    if (waypoints.size() < 2) return false;
+
+    int n = (int)waypoints.size();
+    std::vector<double> distances_nm(n, 0.0);
+    std::vector<double> altitudes_ft(n, 0.0);
+    std::vector<bool> constraint_is_hard(n, false);
+    std::vector<double> original_constraint_alt(n, 0.0);
+
+    double cumulative_dist = 0.0;
+    for (int i = 0; i < n; i++) {
+        if (i > 0) {
+            cumulative_dist += GreatCircle::distanceNm(
+                waypoints[i-1].position, waypoints[i].position);
+        }
+        distances_nm[i] = cumulative_dist;
+
+        const auto& ac = waypoints[i].altitude_constraint;
+        if (ac.type == AltitudeConstraintType::ALT_AT) {
+            altitudes_ft[i] = ac.altitude1_ft;
+            original_constraint_alt[i] = ac.altitude1_ft;
+            constraint_is_hard[i] = true;
+        } else if (ac.type == AltitudeConstraintType::ALT_AT_OR_BELOW) {
+            altitudes_ft[i] = ac.altitude1_ft;
+            original_constraint_alt[i] = ac.altitude1_ft;
+            constraint_is_hard[i] = false;
+        } else if (ac.type == AltitudeConstraintType::ALT_AT_OR_ABOVE) {
+            altitudes_ft[i] = ac.altitude1_ft;
+            original_constraint_alt[i] = ac.altitude1_ft;
+            constraint_is_hard[i] = true;
+        } else if (ac.type == AltitudeConstraintType::ALT_BETWEEN) {
+            altitudes_ft[i] = ac.altitude2_ft;
+            original_constraint_alt[i] = ac.altitude2_ft;
+            constraint_is_hard[i] = false;
+        } else {
+            altitudes_ft[i] = -1.0;
+            original_constraint_alt[i] = -1.0;
+            constraint_is_hard[i] = false;
+        }
+    }
+
+    altitudes_ft[n-1] = final_alt_ft;
+    original_constraint_alt[n-1] = final_alt_ft;
+    constraint_is_hard[n-1] = true;
+
+    double avg_gs_kt = 400.0;
+    int iterations = 0;
+    bool converged = false;
+    const double convergence_tolerance_ft = 1.0;
+
+    while (!converged && iterations < config_.max_backward_iterations) {
+        converged = true;
+        iterations++;
+        double max_adjustment_ft = 0.0;
+
+        for (int i = n - 2; i >= 0; i--) {
+            double seg_dist = distances_nm[i+1] - distances_nm[i];
+            if (seg_dist <= 0.001) continue;
+
+            double next_alt = altitudes_ft[i+1];
+            double current_alt = altitudes_ft[i];
+            double prev_alt = current_alt;
+
+            if (current_alt < 0) {
+                double max_alt_drop = getMaxDescentRateFpm(cruise_alt_ft, avg_gs_kt)
+                                    * (seg_dist / avg_gs_kt * 60.0);
+                double min_alt_for_segment = next_alt + std::abs(max_alt_drop);
+
+                if (min_alt_for_segment > cruise_alt_ft) {
+                    altitudes_ft[i] = cruise_alt_ft;
+                } else {
+                    altitudes_ft[i] = min_alt_for_segment;
+                }
+                max_adjustment_ft = std::max(max_adjustment_ft,
+                    std::abs(altitudes_ft[i] - prev_alt));
+                converged = false;
+                continue;
+            }
+
+            if (current_alt < next_alt - 1.0) {
+                altitudes_ft[i] = next_alt;
+                max_adjustment_ft = std::max(max_adjustment_ft,
+                    std::abs(altitudes_ft[i] - prev_alt));
+                converged = false;
+                continue;
+            }
+
+            double alt_diff = current_alt - next_alt;
+            double time_min = seg_dist / avg_gs_kt * 60.0;
+            double required_vs = alt_diff / std::max(time_min, 0.1);
+            double max_allowed_vs = getMaxDescentRateFpm(current_alt, avg_gs_kt);
+
+            if (required_vs > max_allowed_vs + config_.descent_gradient_tolerance * 100.0) {
+                if (!constraint_is_hard[i] && config_.enable_constraint_relaxation) {
+                    double max_alt_drop = max_allowed_vs * (seg_dist / avg_gs_kt * 60.0);
+                    double new_alt = next_alt + std::abs(max_alt_drop);
+                    if (new_alt > current_alt + convergence_tolerance_ft) {
+                        altitudes_ft[i] = std::min(new_alt, cruise_alt_ft);
+                        max_adjustment_ft = std::max(max_adjustment_ft,
+                            std::abs(altitudes_ft[i] - prev_alt));
+                        converged = false;
+                    }
+                } else if (constraint_is_hard[i]) {
+                    double max_alt_drop = max_allowed_vs * (seg_dist / avg_gs_kt * 60.0);
+                    double max_possible_next_alt = current_alt - std::abs(max_alt_drop);
+
+                    if (max_possible_next_alt > next_alt + convergence_tolerance_ft) {
+                        if (!constraint_is_hard[i+1] && config_.enable_constraint_relaxation) {
+                            altitudes_ft[i+1] = max_possible_next_alt;
+                            max_adjustment_ft = std::max(max_adjustment_ft,
+                                std::abs(altitudes_ft[i+1] - next_alt));
+                            converged = false;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (max_adjustment_ft < convergence_tolerance_ft) {
+            converged = true;
+        }
+    }
+
+    if (iterations >= config_.max_backward_iterations) {
+        return false;
+    }
+
+    descent_profile.clear();
+    for (int i = 0; i < n; i++) {
+        VnavWaypointProfile p;
+        p.waypoint_index = i;
+        p.distance_from_start_nm = distances_nm[i];
+        p.altitude_ft = std::max(altitudes_ft[i], final_alt_ft);
+        p.phase = VnavPhase::DESCENT;
+        p.mach_number = 0.0;
+        p.cas_kt = config_.descent_cas_kt;
+        p.vertical_speed_fpm = 0.0;
+
+        if (i < n - 1) {
+            double seg_dist = distances_nm[i+1] - distances_nm[i];
+            if (seg_dist > 0.001) {
+                double alt_diff = altitudes_ft[i+1] - altitudes_ft[i];
+                double time_min = seg_dist / avg_gs_kt * 60.0;
+                p.vertical_speed_fpm = alt_diff / std::max(time_min, 0.1);
+            }
+        }
+
+        descent_profile.push_back(p);
+    }
+
+    if (iterations >= config_.max_backward_iterations) {
+        return false;
+    }
+    return true;
 }
 
 void VnavStateMachine::setCruiseAltitude(double alt_ft) {
@@ -411,7 +616,8 @@ void VnavStateMachine::updateDescent(double dt_sec, double ground_speed_ms, doub
     if (dist_to_constraint > 0.0 && next_constraint.alt_type != AltitudeConstraintType::ALT_NONE) {
         double required_vs = computeRequiredVsForPath(
             state_.altitude_ft, target_alt, dist_to_constraint, gs_kt);
-        state_.vertical_speed_fpm = std::max(required_vs, -config_.standard_descent_rate_fpm * 1.5);
+        double max_descent = -getMaxDescentRateFpm(state_.altitude_ft, gs_kt);
+        state_.vertical_speed_fpm = std::max(required_vs, max_descent);
     } else {
         state_.vertical_speed_fpm = -config_.standard_descent_rate_fpm;
     }

@@ -280,7 +280,12 @@ PYBIND11_MODULE(vnav_core, m) {
         .def_readwrite("approach_speed_kt", &VnavConfig::approach_speed_kt)
         .def_readwrite("transition_altitude_ft", &VnavConfig::transition_altitude_ft)
         .def_readwrite("transition_level_ft", &VnavConfig::transition_level_ft)
-        .def_readwrite("crossover_altitude_ft", &VnavConfig::crossover_altitude_ft);
+        .def_readwrite("crossover_altitude_ft", &VnavConfig::crossover_altitude_ft)
+        .def_readwrite("max_descent_rate_fpm", &VnavConfig::max_descent_rate_fpm)
+        .def_readwrite("max_flight_path_angle_deg", &VnavConfig::max_flight_path_angle_deg)
+        .def_readwrite("max_backward_iterations", &VnavConfig::max_backward_iterations)
+        .def_readwrite("descent_gradient_tolerance", &VnavConfig::descent_gradient_tolerance)
+        .def_readwrite("enable_constraint_relaxation", &VnavConfig::enable_constraint_relaxation);
 
     py::class_<VnavStateMachine>(m, "VnavStateMachine")
         .def(py::init<>())
@@ -305,6 +310,18 @@ PYBIND11_MODULE(vnav_core, m) {
         .def("compute_required_vs_for_path", &VnavStateMachine::computeRequiredVsForPath)
         .def("compute_top_of_descent_distance_nm", &VnavStateMachine::computeTopOfDescentDistanceNm)
         .def("compute_flight_path_angle", &VnavStateMachine::computeFlightPathAngle)
+        .def("get_max_descent_rate_fpm", &VnavStateMachine::getMaxDescentRateFpm)
+        .def("check_descent_feasibility", [](VnavStateMachine& self, double alt_diff, double dist, double gs) {
+            double req_vs = 0.0;
+            bool ok = self.checkDescentFeasibility(alt_diff, dist, gs, req_vs);
+            return py::make_tuple(ok, req_vs);
+        })
+        .def("compute_descent_profile_backward", [](VnavStateMachine& self, LnavStateMachine& lnav,
+                                                     double cruise_alt, double final_alt) {
+            std::vector<VnavWaypointProfile> profile;
+            bool ok = self.computeDescentProfileBackward(lnav, profile, cruise_alt, final_alt);
+            return py::make_tuple(ok, profile);
+        })
         .def_static("feet_to_meters", &VnavStateMachine::feetToMeters)
         .def_static("meters_to_feet", &VnavStateMachine::metersToFeet)
         .def_static("knots_to_mps", &VnavStateMachine::knotsToMetersPerSec)

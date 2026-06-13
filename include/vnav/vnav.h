@@ -86,6 +86,11 @@ struct VnavConfig {
     double transition_altitude_ft;
     double transition_level_ft;
     double crossover_altitude_ft;
+    double max_descent_rate_fpm;
+    double max_flight_path_angle_deg;
+    int max_backward_iterations;
+    double descent_gradient_tolerance;
+    bool enable_constraint_relaxation;
 
     VnavConfig()
         : climb_cas_kt(280.0),
@@ -99,7 +104,12 @@ struct VnavConfig {
           approach_speed_kt(140.0),
           transition_altitude_ft(18000.0),
           transition_level_ft(18000.0),
-          crossover_altitude_ft(31000.0) {}
+          crossover_altitude_ft(31000.0),
+          max_descent_rate_fpm(4000.0),
+          max_flight_path_angle_deg(6.0),
+          max_backward_iterations(1000),
+          descent_gradient_tolerance(0.5),
+          enable_constraint_relaxation(true) {}
 };
 
 class VnavStateMachine {
@@ -136,6 +146,15 @@ public:
                                           double descent_rate_fpm, double ground_speed_kt) const;
 
     double computeFlightPathAngle(double vs_fpm, double gs_kt) const;
+
+    bool computeDescentProfileBackward(const LnavStateMachine& lnav,
+                                      std::vector<VnavWaypointProfile>& descent_profile,
+                                      double cruise_alt_ft,
+                                      double final_alt_ft);
+
+    double getMaxDescentRateFpm(double altitude_ft, double gs_kt) const;
+    bool checkDescentFeasibility(double alt_diff_ft, double distance_nm,
+                                double gs_kt, double& required_vs_fpm) const;
 
     static double feetToMeters(double ft);
     static double metersToFeet(double m);

@@ -1,0 +1,8 @@
+{
+	"InstallScripts" : 
+	[
+		"D:/SOLO-11/22-avionics-vnav-calc/build/cmake_install.cmake",
+		"D:/SOLO-11/22-avionics-vnav-calc/build/tests/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

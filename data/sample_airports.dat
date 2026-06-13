@@ -1,0 +1,17 @@
+SUSPPAKJFK                      N403823000 W0734644300 00013                                 JOHN F KENNEDY INTL                    
+SUSPPAKEWR                      N404115600 W0740959300 00016                                 NEWARK LIBERTY INTL                    
+SUSPPAKLGA                      N404650000 W0733536000 00006                                 LAGUARDIA                              
+SUSPDBKJFK   MERIT              N404219700 W0734642300                                       MERIT INTERSECTION                     
+SUSPDBKJFK   CANJC              N402351100 W0733812100                                       CANJC INTERSECTION                     
+SUSPDBKJFK   BOSOX              N400152300 W0731230900                                       BOSOX INTERSECTION                     
+SUSPDBKJFK   PARCH              N395402100 W0724724400                                       PARCH INTERSECTION                     
+SUSPDBKJFK   WAVEY              N392643700 W0720929700                                       WAVEY INTERSECTION                     
+SUSPDBKEWR   SOLEN              N394307200 W0725954400                                       SOLEN INTERSECTION                     
+SUSPDBKEWR   DOOPY              N392331900 W0741653700                                       DOOPY INTERSECTION                     
+SUSPSDKJFK   D04L            MERIT                                     +0050+0070                                                   
+SUSPSDKJFK   D04L            CANJC                                     +0050+0110                                                   
+SUSPSDKJFK   D04L            BOSOX                                     +0110+0150                                                   
+SUSPSDKJFK   D04L            PARCH                                     +0150+0210                                                   
+SUSPSEKEWR   E22R            WAVEY                                     -0210                                                        
+SUSPSEKEWR   E22R            PARCH                                     -0180                                                        
+SUSPSEKEWR   E22R            SOLEN                                     -0110                                                        

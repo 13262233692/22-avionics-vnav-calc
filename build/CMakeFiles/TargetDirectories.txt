@@ -1,0 +1,7 @@
+D:/SOLO-11/22-avionics-vnav-calc/build/CMakeFiles/vnav.dir
+D:/SOLO-11/22-avionics-vnav-calc/build/CMakeFiles/vnav_core.dir
+D:/SOLO-11/22-avionics-vnav-calc/build/CMakeFiles/RUN_TESTS.dir
+D:/SOLO-11/22-avionics-vnav-calc/build/CMakeFiles/ALL_BUILD.dir
+D:/SOLO-11/22-avionics-vnav-calc/build/CMakeFiles/ZERO_CHECK.dir
+D:/SOLO-11/22-avionics-vnav-calc/build/tests/CMakeFiles/test_vnav.dir
+D:/SOLO-11/22-avionics-vnav-calc/build/tests/CMakeFiles/RUN_TESTS.dir
